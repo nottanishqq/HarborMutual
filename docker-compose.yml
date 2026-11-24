@@ -1,0 +1,23 @@
+# Local stack: the "legacy estate" (Postgres + MongoDB) and the SurrealDB target.
+# Ports are offset so this runs next to D:\Projects\harbor.
+services:
+  surrealdb:
+    image: surrealdb/surrealdb:v4.0.1
+    command: start --user ${SURREAL_USER:-root} --pass ${SURREAL_PASS:-root} rocksdb:///data/harbor.db
+    ports: ["8001:8000"]
+    volumes: [surreal_data:/data]
+
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: harbor
+      POSTGRES_PASSWORD: harbor
+      POSTGRES_DB: harbor
+    ports: ["5433:5432"]
+
+  mongo: # stands in for Azure Cosmos DB (Mongo API)
+    image: mongo:8
+    ports: ["27018:27017"]
+
+volumes:
+  surreal_data:

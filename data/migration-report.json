@@ -1,0 +1,66 @@
+{
+  "ok": true,
+  "tables": [
+    {
+      "source": "postgres.adjuster",
+      "target": "adjuster",
+      "source_rows": 4,
+      "target_rows": 4
+    },
+    {
+      "source": "postgres.customer",
+      "target": "customer",
+      "source_rows": 160,
+      "target_rows": 160
+    },
+    {
+      "source": "postgres.policy",
+      "target": "policy",
+      "source_rows": 200,
+      "target_rows": 200
+    },
+    {
+      "source": "postgres.party",
+      "target": "party",
+      "source_rows": 188,
+      "target_rows": 188
+    },
+    {
+      "source": "postgres.claim",
+      "target": "claim",
+      "source_rows": 450,
+      "target_rows": 450
+    },
+    {
+      "source": "postgres.claim_party",
+      "target": "involved_in",
+      "source_rows": 274,
+      "target_rows": 274
+    },
+    {
+      "source": "mongo.correspondence",
+      "target": "note",
+      "source_rows": 892,
+      "target_rows": 892
+    },
+    {
+      "source": "postgres.payment",
+      "target": "claim.payments[*]",
+      "source_rows": 261,
+      "target_rows": 261
+    }
+  ],
+  "money": [
+    {
+      "check": "sum(claim.amount)",
+      "source": 2201434.02,
+      "target": 2201434.02
+    },
+    {
+      "check": "sum(payment.amount)",
+      "source": 1253755.96,
+      "target": 1253755.96
+    }
+  ],
+  "seconds": 3.3
+}

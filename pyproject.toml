@@ -1,0 +1,21 @@
+[project]
+name = "harbor"
+version = "0.1.0"
+description = "Harbor Mutual: migrating an insurer's Postgres + MongoDB estate into SurrealDB, with hybrid search, fraud-ring graph queries, region permissions and an AI claims agent."
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.32",
+    "httpx>=0.28",
+    "fastembed>=0.5",
+    "openai>=1.60",
+]
+
+[dependency-groups]
+# Only needed locally to build the legacy estate and run the migration.
+migrate = ["psycopg[binary]>=3.2", "pymongo>=4.10"]
+dev = ["pytest>=8"]
+
+[tool.uv]
+package = false
+default-groups = ["migrate", "dev"]

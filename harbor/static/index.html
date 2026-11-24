@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Harbor Mutual on SurrealDB</title>
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --line:#262b36; --text:#e6e8ee; --muted:#9aa3b2; --accent:#ff00a0; --ok:#3ecf8e; --warn:#f5a524; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.5 system-ui, -apple-system, Segoe UI, sans-serif; background:var(--bg); color:var(--text); }
+  header { padding:20px 24px; border-bottom:1px solid var(--line); display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+  h1 { font-size:18px; margin:0; } h1 span { color:var(--accent); }
+  .sub { color:var(--muted); font-size:13px; }
+  .grow { flex:1; }
+  select, input, button, textarea { font:inherit; color:var(--text); background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:8px 12px; }
+  button { cursor:pointer; background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+  button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, [role=tab]:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  nav { display:flex; gap:4px; padding:0 24px; border-bottom:1px solid var(--line); overflow-x:auto; }
+  [role=tab] { background:none; border:0; border-bottom:2px solid transparent; border-radius:0; color:var(--muted); padding:12px 14px; font-weight:500; }
+  [role=tab][aria-selected=true] { color:var(--text); border-bottom-color:var(--accent); }
+  main { padding:24px; max-width:1100px; margin:0 auto; }
+  .row { display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap; } .row input, .row textarea { flex:1; min-width:200px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin-bottom:10px; }
+  .card h3 { margin:0 0 4px; font-size:15px; }
+  .meta { color:var(--muted); font-size:13px; display:flex; gap:12px; flex-wrap:wrap; }
+  .pill { font-size:12px; padding:1px 8px; border-radius:99px; border:1px solid var(--line); color:var(--muted); }
+  .pill.open { color:var(--warn); border-color:var(--warn); } .pill.approved { color:var(--ok); border-color:var(--ok); }
+  .hint { color:var(--muted); font-size:14px; margin:0 0 16px; }
+  a.claim { color:var(--accent); cursor:pointer; text-decoration:underline; }
+  table { width:100%; border-collapse:collapse; font-size:14px; } td, th { text-align:left; padding:8px; border-bottom:1px solid var(--line); }
+  .good { color:var(--ok); } .bad { color:#ff5c5c; }
+  dialog { background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:12px; max-width:720px; width:92vw; padding:20px; }
+  dialog::backdrop { background:#000a; }
+  pre { white-space:pre-wrap; background:#0b0d11; padding:10px; border-radius:8px; font-size:13px; }
+  .answer { white-space:pre-wrap; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Harbor Mutual <span>on SurrealDB</span></h1>
+    <div class="sub">An insurer's Postgres + MongoDB estate, migrated into one SurrealDB v4 database</div>
+  </div>
+  <div class="grow"></div>
+  <label class="sub" for="persona">Signed in as</label>
+  <select id="persona">
+    <option value="north">Asha Rao, North adjuster</option>
+    <option value="south">Ben Clarke, South adjuster</option>
+    <option value="office">Head office (all regions)</option>
+  </select>
+</header>
+<nav role="tablist">
+  <button role="tab" data-tab="search" aria-selected="true">Hybrid search</button>
+  <button role="tab" data-tab="fraud" aria-selected="false">Fraud rings</button>
+  <button role="tab" data-tab="ask" aria-selected="false">Claims agent</button>
+  <button role="tab" data-tab="migration" aria-selected="false">Migration report</button>
+</nav>
+<main>
+  <section id="search">
+    <p class="hint">BM25 keyword search and HNSW vector search run side by side, merged with Reciprocal Rank Fusion. Switch adjuster: results change because <b>region permissions live in the database</b>, not in this app.</p>
+    <form class="row" id="search-form">
+      <input id="q" aria-label="Search claims" value="water damage from a leaking pipe">
+      <button>Search</button>
+    </form>
+    <div id="search-out" aria-live="polite"></div>
+  </section>
+  <section id="fraud" hidden>
+    <p class="hint">A witness should almost never appear on more than one claim. This graph query walks <code>party → involved_in → claim</code> to find witnesses on 3+ claims, plus the repair shops they share.</p>
+    <div id="fraud-out" aria-live="polite"></div>
+  </section>
+  <section id="ask" hidden>
+    <p class="hint">An LLM with four read-only tools, each running with the adjuster's own database token. It remembers past questions per adjuster (private memory table). Try: "Which open claims look like a fraud ring?" or "Summarise claim HM-24008".</p>
+    <form class="row" id="ask-form">
+      <textarea id="question" rows="2" aria-label="Question for the claims agent">Which open claims look like part of a fraud ring, and why?</textarea>
+      <button>Ask</button>
+    </form>
+    <div id="ask-out" aria-live="polite"></div>
+  </section>
+  <section id="migration" hidden>
+    <p class="hint">Every source row and every money total checked against the target after migration.</p>
+    <div id="migration-out"></div>
+  </section>
+</main>
+<dialog id="detail"><div id="detail-out"></div><form method="dialog"><button>Close</button></form></dialog>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const money = v => "£" + Number(v).toLocaleString("en-GB", {maximumFractionDigits: 0});
+const date = v => new Date(v).toLocaleDateString("en-GB");
+const as = () => $("#persona").value;
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.detail?.toString() || r.statusText);
+  return body;
+}
+const claimLink = n => `<a class="claim" data-n="${esc(n)}">${esc(n)}</a>`;
+const card = c => `<div class="card"><h3>${claimLink(c.number)} <span class="pill ${esc(c.status)}">${esc(c.status)}</span></h3>
+  <div>${esc(c.description)}</div>
+  <div class="meta"><span>${esc(c.region)}</span><span>${money(c.amount)}</span><span>${date(c.filed_at)}</span>
+  ${c.rrf ? `<span>keyword #${c.keyword_rank ?? "–"} · vector #${c.vector_rank ?? "–"} · rrf ${c.rrf}</span>` : ""}</div></div>`;
+
+document.querySelectorAll("[role=tab]").forEach(t => t.onclick = () => {
+  document.querySelectorAll("[role=tab]").forEach(x => x.setAttribute("aria-selected", x === t));
+  document.querySelectorAll("main > section").forEach(s => s.hidden = s.id !== t.dataset.tab);
+  load(t.dataset.tab);
+});
+$("#persona").onchange = () => load(document.querySelector("[aria-selected=true]").dataset.tab);
+
+async function load(tab) {
+  if (tab === "search") return runSearch();
+  if (tab === "fraud") {
+    $("#fraud-out").textContent = "Walking the graph…";
+    try {
+      const rings = await api(`/api/fraud?as=${as()}`);
+      $("#fraud-out").innerHTML = rings.length ? rings.map(r => `<div class="card"><h3>Witness: ${esc(r.name)} (${esc(r.phone)})</h3>
+        <div class="meta"><span>${r.claims} claims</span><span>exposure ${money(r.exposure)}</span><span>shops: ${r.shops.map(esc).join(", ")}</span></div>
+        <div>${r.linked_claims.map(c => `${claimLink(c.number)} ${money(c.amount)} (${esc(c.region)})`).join(" · ")}</div></div>`).join("")
+        : "<p class='hint'>No rings visible from this region.</p>";
+    } catch (e) { $("#fraud-out").textContent = e.message; }
+  }
+  if (tab === "migration") {
+    const m = await api("/api/migration");
+    $("#migration-out").innerHTML = `<p class="${m.ok ? "good" : "bad"}"><b>${m.ok ? "All checks passed" : "Mismatch found"}</b> · ${m.seconds}s</p>
+      <table><tr><th>Source</th><th>Target</th><th>Source rows</th><th>Target rows</th></tr>
+      ${m.tables.map(t => `<tr><td>${esc(t.source)}</td><td>${esc(t.target)}</td><td>${t.source_rows}</td><td class="${t.source_rows === t.target_rows ? "good" : "bad"}">${t.target_rows}</td></tr>`).join("")}
+      ${m.money.map(t => `<tr><td colspan="2">${esc(t.check)}</td><td>${money(t.source)}</td><td class="${t.source === t.target ? "good" : "bad"}">${money(t.target)}</td></tr>`).join("")}</table>`;
+  }
+}
+
+async function runSearch(e) {
+  e?.preventDefault();
+  $("#search-out").textContent = "Searching…";
+  try {
+    const r = await api(`/api/search?q=${encodeURIComponent($("#q").value)}&as=${as()}`);
+    $("#search-out").innerHTML = `<p class="hint">${r.keyword_hits} keyword hits, ${r.vector_hits} vector hits, fused:</p>` + (r.results.map(card).join("") || "<p class='hint'>Nothing visible.</p>");
+  } catch (err) { $("#search-out").textContent = err.message; }
+}
+$("#search-form").onsubmit = runSearch;
+
+$("#ask-form").onsubmit = async e => {
+  e.preventDefault();
+  if (as() === "office") { $("#ask-out").textContent = "Pick an adjuster: the agent runs with an adjuster's own permissions and memory."; return; }
+  $("#ask-out").textContent = "Thinking…";
+  try {
+    const r = await api("/api/ask", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({question: $("#question").value, as: as()})});
+    $("#ask-out").innerHTML = `<div class="card answer">${esc(r.answer)}</div>
+      <div class="meta"><span>tools: ${r.trace.map(t => esc(t.tool)).join(" → ") || "none"}</span><span>memories recalled: ${r.recalled.length}</span></div>`;
+  } catch (err) { $("#ask-out").textContent = err.message; }
+};
+
+document.body.addEventListener("click", async e => {
+  const n = e.target.closest("a.claim")?.dataset.n;
+  if (!n) return;
+  try {
+    const c = await api(`/api/claim/${encodeURIComponent(n)}?as=${as()}`);
+    $("#detail-out").innerHTML = `<h3>${esc(c.number)} · ${esc(c.customer)} · ${esc(c.policy_kind)} policy</h3>${card(c)}
+      <b>Parties</b><ul>${c.parties.map(p => `<li>${esc(p.name)} (${esc(p.role)})</li>`).join("") || "<li>none</li>"}</ul>
+      <b>Claims sharing a person</b><p>${c.linked.map(l => claimLink(l.number)).join(" · ") || "none"}</p>
+      <b>Correspondence (migrated from MongoDB)</b><ul>${c.notes.map(x => `<li>${date(x.sent_at)} ${esc(x.channel)}: ${esc(x.body)}</li>`).join("")}</ul>`;
+  } catch (err) { $("#detail-out").textContent = err.message; }
+  if (!$("#detail").open) $("#detail").showModal();
+});
+load("search");
+</script>
+</body>
+</html>
