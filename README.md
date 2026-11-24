@@ -1,13 +1,3 @@
----
-title: Harbor on SurrealDB
-emoji: ⚓
-colorFrom: pink
-colorTo: gray
-sdk: docker
-app_port: 7860
-pinned: false
----
-
 # Harbor Mutual on SurrealDB
 
 A fictional insurer, Harbor Mutual, runs claims on **Postgres** and keeps correspondence and policy documents in **MongoDB** (standing in for Azure Cosmos DB). This project migrates both into one **SurrealDB v4** database and builds on top of it:
@@ -17,7 +7,7 @@ A fictional insurer, Harbor Mutual, runs claims on **Postgres** and keeps corres
 - **Region-level permissions** enforced inside the database.
 - **A claims agent** with tools and private long-term memory per adjuster.
 
-**Live demo:** `https://huggingface.co/spaces/<you>/harbor` (see [Deploy](#deploy-free))
+**Live demo:** https://harbormutual.onrender.com (free tier: first visit after 15 idle minutes takes about a minute to wake)
 
 ## What it shows
 
@@ -47,7 +37,7 @@ A fictional insurer, Harbor Mutual, runs claims on **Postgres** and keeps corres
             static/index.html (persona switcher: North / South adjuster / head office)
 ```
 
-**Hosted version:** one container. SurrealDB runs in memory and loads the migrated snapshot (`data/harbor.surql`) at boot, next to the app. Root credentials are random per boot and never leave the container. Visitors act as demo adjusters (record users).
+**Hosted version:** one container on Render. SurrealDB runs in memory and loads the migrated snapshot (`data/harbor.surql`) at boot, next to the app. Root credentials are random per boot and never leave the container. Visitors act as demo adjusters (record users).
 
 ## Run locally
 
@@ -73,18 +63,11 @@ To refresh the hosted snapshot after a migration: `sh scripts/export.sh`.
 
 ## Deploy (free)
 
-Hugging Face Spaces, free CPU tier (2 vCPU, 16 GB RAM; this app uses about 400 MB).
+Render free web service (512 MB RAM; this app uses about 400 MB), built from the `Dockerfile`.
 
-1. Create a Space: SDK **Docker**, name `harbor`, visibility public.
-2. In the Space's **Settings → Variables and secrets**, add the secret `LLM_API_KEY`.
-3. Push this repo to the Space:
-   ```sh
-   git remote add space https://huggingface.co/spaces/<you>/harbor
-   git push space main
-   ```
-   Use an HF access token with write scope as the password.
-
-The first build takes about 5 minutes. Free Spaces sleep after 48 hours without visitors and wake on the next visit, which takes about 30 seconds.
+1. Render → New → Web Service → connect this repo. Runtime: Docker. Instance: Free.
+2. Environment: add `LLM_API_KEY`.
+3. Every push to `master` redeploys. The service sleeps after 15 idle minutes, and agent memory resets on each wake (the database is in memory).
 
 ## Decisions
 

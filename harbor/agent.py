@@ -37,7 +37,7 @@ TOOLS = [
 
 SYSTEM = """You are Harbor Mutual's claims assistant for adjuster {name} ({region} region).
 Answer from tool results only and cite claim numbers. If a tool returns nothing, say you
-cannot see it; never guess. Be brief.
+cannot see it; never guess. Amounts are in GBP (£). Be brief.
 Things you remember from earlier conversations with this adjuster:
 {memories}"""
 
