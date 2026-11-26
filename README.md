@@ -14,12 +14,13 @@ A fictional insurer, Harbor Mutual, runs claims on **Postgres** and keeps corres
 | Area | How |
 | --- | --- |
 | Data modelling across documents, graph and vectors | [`schema/harbor.surql`](schema/harbor.surql). Record links for 1-to-many (claim → policy → customer); embedded arrays for child rows only read with their parent (payments); `RELATE` edges with a `role` for the many-to-many party ↔ claim; vectors on the claim itself. |
-| Migration from Postgres + MongoDB | [`harbor/migrate.py`](harbor/migrate.py). Source primary keys become record IDs, so every write is an upsert and re-runs are safe (idempotent). Foreign keys become record links, the join table becomes graph edges, and Mongo documents become typed records. |
+| Migration from Postgres + MongoDB | [`harbor/migrate.py`](harbor/migrate.py). Source primary keys become record IDs, so every write is an upsert and re-runs are safe (idempotent). Target rows whose source row is gone are deleted, so the target mirrors the source. Foreign keys become record links, the join table becomes graph edges, and Mongo documents become typed records. |
 | Verification | After every run: row counts per table and money totals, source vs target. The result appears in the app's *Migration report* tab. |
 | Search and retrieval | [`harbor/search.py`](harbor/search.py). `@1,OR@` BM25 plus `<\|k,ef\|>` HNSW KNN, fused with RRF in Python. Example: *"car hit an animal"*. Keyword search finds "hit a lamp post", vector search finds "collided with a deer", and the fused list has both. |
-| Graph queries | A witness appearing on 3 or more claims is a ring signal. `party->involved_in->claim<-involved_in<-party` shows the shared repair shops. Three rings are planted in the synthetic data and found. |
+| Graph queries | A witness appearing on 3 or more claims is a ring signal. `party->involved_in->claim<-involved_in<-party` shows the shared repair shops. Eight rings are planted in the synthetic data and found; in two, the witness is also a customer. |
 | Security | `DEFINE ACCESS ... TYPE RECORD` with argon2 sign-in, plus table `PERMISSIONS` keyed on `$auth.region`. A North adjuster cannot read South claims through the UI, the API or the agent, because the database refuses. |
 | Agentic AI | [`harbor/agent.py`](harbor/agent.py). An LLM tool loop. The model never writes SurrealQL: it calls four read-only tools, each run with the adjuster's own token. After each answer it stores a memory note (embedded, HNSW-indexed, private per adjuster by table permission) and recalls the closest notes next time. |
+| Example queries | [`harbor/examples.py`](harbor/examples.py). Clickable searches with a note on what each shows, agent questions, and fixed SurrealQL checks (fraud and migration) the UI runs as the selected adjuster. The API never accepts SurrealQL from the browser. |
 | Tests | [`tests/test_harbor.py`](tests/test_harbor.py): RRF maths, permissions enforced by the DB, rings found, and the agent tool loop plus memory isolation (with a fake LLM). |
 
 ## Architecture
@@ -63,7 +64,7 @@ To refresh the hosted snapshot after a migration: `sh scripts/export.sh`.
 
 ## Deploy (free)
 
-Render free web service (512 MB RAM; this app uses about 400 MB), built from the `Dockerfile`.
+Render free web service (512 MB RAM; this app uses about 375 MB: SurrealDB ~130 MB, Python + embedding model ~245 MB), built from the `Dockerfile`.
 
 1. Render → New → Web Service → connect this repo. Runtime: Docker. Instance: Free.
 2. Environment: add `LLM_API_KEY`.
@@ -79,6 +80,6 @@ Render free web service (512 MB RAM; this app uses about 400 MB), built from the
 
 ## Known limits
 
-- The data is synthetic: about 450 claims, 890 notes and 3 planted fraud rings.
+- The data is synthetic: 1,350 claims, about 2,800 notes, 860 graph edges and 8 planted fraud rings. Descriptions come from ~30 templates plus a random detail, so similar claims still read alike.
 - The agent has no rate limit beyond the LLM provider's free-tier quota.
 - Memory notes are written on every answer. There is no summarisation or forgetting yet.

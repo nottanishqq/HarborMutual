@@ -23,7 +23,7 @@ def test_region_permissions_are_enforced_by_the_database():
 
 def test_planted_fraud_rings_are_found():
     rings = search.fraud_rings(None)
-    assert len(rings) == 3 and all(r["claims"] >= 4 for r in rings)
+    assert len(rings) == 8 and all(r["claims"] >= 4 for r in rings)
 
 
 def test_agent_tool_loop_and_private_memory(monkeypatch):

@@ -1,7 +1,8 @@
 """Build Harbor Mutual's legacy estate: Postgres (core records) + MongoDB (Cosmos stand-in).
 
-Synthetic, seeded, so every run produces the same data. Three fraud rings are planted:
+Synthetic, seeded, so every run produces the same data. Eight fraud rings are planted:
 one "witness" and one repair shop that keep turning up on unrelated, high-value claims.
+In the last two rings the witness is also a customer (same name and phone): a second signal.
 """
 
 from __future__ import annotations
@@ -16,10 +17,13 @@ from pymongo import MongoClient
 PG_DSN = os.getenv("PG_DSN", "postgresql://harbor:harbor@localhost:5433/harbor")
 MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27018")
 
-FIRST = "Aarav Maya Liam Zara Noah Isla Kabir Ava Omar Leah Ravi Chloe Ethan Priya Lucas Mei Sam Nora Arjun Ella".split()
-LAST = "Shah Patel Smith Jones Khan Brown Singh Taylor Wilson Clarke Evans Gupta Walker Reid Hughes Rao".split()
-SHOPS = ["Quickfix Autos", "Northside Panel Beaters", "Southgate Motors", "Precision Body Works", "City Smash Repairs"]
-CLINICS = ["Riverside Physio", "Harbour Medical Centre", "Elm Street Clinic"]
+FIRST = ("Aarav Maya Liam Zara Noah Isla Kabir Ava Omar Leah Ravi Chloe Ethan Priya Lucas Mei Sam Nora Arjun Ella"
+         " Dev Freya Hassan Ruby Jack Anika Leo Sophie Yusuf Grace Rohan Amelia Finn Sana Oscar Tara").split()
+LAST = ("Shah Patel Smith Jones Khan Brown Singh Taylor Wilson Clarke Evans Gupta Walker Reid Hughes Rao"
+        " Ahmed Wright Green Mehta Hall Iyer Scott Bose Turner Ali Cooper Nair").split()
+SHOPS = ["Quickfix Autos", "Northside Panel Beaters", "Southgate Motors", "Precision Body Works", "City Smash Repairs",
+         "Harbour Auto Care", "Elm Park Garage", "Motorway Body Shop"]
+CLINICS = ["Riverside Physio", "Harbour Medical Centre", "Elm Street Clinic", "Northgate Spine Clinic"]
 
 CAR = [
     "Rear-ended at the {place} traffic lights while stationary. {damage}. Car taken to {shop}.",
@@ -28,6 +32,15 @@ CAR = [
     "Vehicle broken into outside {place}; window smashed and laptop stolen.",
     "Hailstorm near {place} left dents across the roof and bonnet. {damage}.",
     "Skidded on ice near {place} and hit a lamp post. {damage}. Whiplash reported.",
+    "Hit by an uninsured driver at the {place} roundabout. {damage}. Car taken to {shop}.",
+    "Side-swiped by a lorry merging on the {place} bypass. {damage}. Car taken to {shop}.",
+    "Pothole on {place} burst the front tyre and bent the wheel rim.",
+    "Car keyed along both sides while parked overnight on {place}.",
+    "Stolen from the driveway overnight and later found burnt out near {place}.",
+    "Flash flood on {place} got into the engine; car will not start.",
+    "Cyclist rode into my parked car on {place}. {damage}.",
+    "Shunted from behind in queuing traffic on {place}. {damage}. Whiplash reported. Car taken to {shop}.",
+    "Wing mirror clipped by a passing van on {place}. {damage}.",
 ]
 HOME = [
     "Burst pipe under the kitchen sink flooded the ground floor. Flooring and cabinets ruined.",
@@ -37,10 +50,24 @@ HOME = [
     "Burglary while on holiday: TV, jewellery and laptop taken from the {room}.",
     "Subsidence cracks appeared in the {room} wall after a dry summer.",
     "Tree fell on the garage during high winds, crushing the roof.",
+    "Washing machine hose split and soaked the {room} carpet.",
+    "Frozen pipe in the loft cracked over winter; water came through the {room} ceiling.",
+    "Lightning strike during a storm blew the boiler and the fuse board.",
+    "Electrical fault in the {room} caused a small fire; wiring needs replacing.",
+    "River flooding reached the ground floor; {room} and kitchen under water.",
+    "Shed broken into, bikes and power tools stolen.",
+    "Red wine spilt across the {room} sofa and rug.",
+    "Dropped a tin of paint on the new {room} carpet.",
+    "Blocked drain backed up and sewage came into the {room}.",
 ]
-PLACES = ["High Street", "Market Square", "Station Road", "Riverside", "Elm Park", "Harbour Way"]
+PLACES = ["High Street", "Market Square", "Station Road", "Riverside", "Elm Park", "Harbour Way",
+          "Mill Lane", "Church Road", "Kingsway", "Dock Street"]
 DAMAGE = ["Bumper and boot crushed", "Driver door dented", "Headlight and wing damaged",
           "Windscreen cracked", "Front end written off"]
+# One extra detail per claim, so templated descriptions don't read identically.
+EXTRAS = ["", "Happened around {hour}:00.", "Police reference {ref} given.", "Photos sent the same day.",
+          "Customer away at the time.", "Second claim this year.", "Neighbour saw it happen.",
+          "Reported {days} days later."]
 ROOMS = ["living room", "bedroom", "hallway", "dining room", "study"]
 NOTES = [
     "Customer called to chase progress on the claim.",
@@ -52,6 +79,10 @@ NOTES = [
     "Customer unhappy with delay, considering complaint.",
     "Medical report received from {clinic} for whiplash.",
     "Witness statement received, matches customer account closely.",
+    "Customer asked whether a courtesy car is covered.",
+    "Engineer's report says damage is older than the claimed date.",
+    "Payment details confirmed with the customer by phone.",
+    "Third party not responding to letters.",
 ]
 
 
@@ -71,12 +102,12 @@ def generate(seed: int = 7) -> dict[str, list[dict]]:
         {"id": 4, "name": "Omar Khan", "email": "omar.south@harbor.example", "region": "South"},
     ]
     customers = []
-    for i in range(1, 161):
+    for i in range(1, 481):
         n = name()
         customers.append({"id": i, "name": n, "email": f"{n.lower().replace(' ', '.')}{i}@mail.example",
                           "phone": phone(rng), "region": rng.choice(["North", "South"])})
     policies = []
-    for i in range(1, 201):
+    for i in range(1, 601):
         c = customers[(i - 1) % len(customers)]
         policies.append({"id": i, "customer_id": c["id"], "kind": rng.choice(["home", "car"]),
                          "start_date": start - timedelta(days=rng.randint(30, 900)),
@@ -93,12 +124,13 @@ def generate(seed: int = 7) -> dict[str, list[dict]]:
 
     claims, links, payments, notes = [], [], [], []
     by_cust = {c["id"]: c for c in customers}
-    for i in range(1, 451):
+    for i in range(1, 1351):
         p = rng.choice(policies)
         region = by_cust[p["customer_id"]]["region"]
         shop = rng.choice(SHOPS)
         tpl = rng.choice(CAR if p["kind"] == "car" else HOME)
         desc = tpl.format(place=rng.choice(PLACES), damage=rng.choice(DAMAGE), shop=shop, room=rng.choice(ROOMS))
+        desc = f"{desc} {rng.choice(EXTRAS).format(hour=rng.randint(0, 23), ref=rng.randint(10000, 99999), days=rng.randint(2, 30))}".strip()
         filed = start + timedelta(days=rng.randint(0, 600), hours=rng.randint(0, 23))
         status = rng.choices(["open", "approved", "rejected"], [3, 5, 1])[0]
         claims.append({"id": i, "number": f"HM-{24000 + i}", "policy_id": p["id"],
@@ -114,16 +146,20 @@ def generate(seed: int = 7) -> dict[str, list[dict]]:
         if status == "approved":
             payments.append({"claim_id": i, "amount": claims[-1]["amount"], "paid_at": filed + timedelta(days=rng.randint(5, 40))})
         for k in range(rng.randint(1, 3)):
-            notes.append({"claim_number": f"HM-{24000 + i}", "channel": rng.choice(["email", "phone", "letter"]),
+            # Stable _id, so re-seeding and migrating again overwrites notes instead of duplicating them.
+            notes.append({"_id": f"HM-{24000 + i}-{k}", "claim_number": f"HM-{24000 + i}", "channel": rng.choice(["email", "phone", "letter"]),
                           "author": rng.choice(["customer", "adjuster", "third party"]),
                           "body": rng.choice(NOTES).format(shop=shop, clinic=rng.choice(CLINICS)),
                           "sent_at": filed + timedelta(days=k * 3 + 1)})
 
     # Fraud rings: the same witness and repair shop on 4-6 big, recent car claims across customers.
-    ring_claims = [c for c in claims if "car" == next(p["kind"] for p in policies if p["id"] == c["policy_id"])]
+    kind = {p["id"]: p["kind"] for p in policies}
+    ring_claims = [c for c in claims if kind[c["policy_id"]] == "car"]
     rng.shuffle(ring_claims)
-    for ring in range(3):
+    for ring in range(8):
         witness = new_person()
+        if ring >= 6:  # the witness is secretly one of our own customers
+            witness.update(name=customers[ring]["name"], phone=customers[ring]["phone"])
         shop_id = ring + 1
         for c in ring_claims[ring * 6: ring * 6 + rng.randint(4, 6)]:
             c["amount"] = round(rng.uniform(7000, 14000), 2)

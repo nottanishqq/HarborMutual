@@ -17,6 +17,10 @@ RRF_K = 60  # standard constant from the RRF paper; damps the weight of top rank
 STOP = set("a an and are as at be by for from has have i in is it its my of on or that the this to was were what which who with".split())
 
 
+KEYWORD_SQL = f"SELECT {FIELDS}, search::score(1) AS score FROM claim WHERE description @1,OR@ $q ORDER BY score DESC LIMIT 25;"
+VECTOR_SQL = f"SELECT {FIELDS}, vector::distance::knn() AS dist FROM claim WHERE embedding <|25,100|> $v ORDER BY dist;"
+
+
 def rrf(*ranked: list[str], k: int = RRF_K) -> dict[str, float]:
     scores: dict[str, float] = {}
     for ids in ranked:
@@ -27,8 +31,7 @@ def rrf(*ranked: list[str], k: int = RRF_K) -> dict[str, float]:
 
 def search(q: str, persona: str | None, limit: int = 8) -> dict:
     keyword, vector = db.query(
-        f"SELECT {FIELDS}, search::score(1) AS score FROM claim WHERE description @1,OR@ $q ORDER BY score DESC LIMIT 25;"
-        f"SELECT {FIELDS}, vector::distance::knn() AS dist FROM claim WHERE embedding <|25,100|> $v ORDER BY dist;",
+        KEYWORD_SQL + VECTOR_SQL,
         {"q": " ".join(w for w in q.split() if w.lower() not in STOP) or q, "v": embed_one(q)}, as_=persona)
     rows = {r["id"]: r for r in keyword + vector}
     fused = rrf([r["id"] for r in keyword], [r["id"] for r in vector])

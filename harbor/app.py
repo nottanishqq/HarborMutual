@@ -1,4 +1,4 @@
-"""HTTP API + single-page UI. Read-only demo: no endpoint accepts raw SurrealQL."""
+"""HTTP API + single-page UI. Read-only demo: no endpoint accepts raw SurrealQL (checks are a fixed list)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from harbor import agent, search
+from harbor import agent, db, examples, search
 
 ROOT = Path(__file__).resolve().parent
 app = FastAPI(title="Harbor on SurrealDB")
@@ -43,6 +43,19 @@ def api_claim(number: str, as_: Persona = Query("north", alias="as")):
 @app.get("/api/fraud")
 def api_fraud(as_: Persona = Query("north", alias="as")):
     return search.fraud_rings(who(as_))
+
+
+@app.get("/api/examples")
+def api_examples():
+    return examples.payload()
+
+
+@app.get("/api/check/{name}")
+def api_check(name: str, as_: Persona = Query("north", alias="as")):
+    check = examples.CHECKS.get(name)
+    if not check:
+        raise HTTPException(404, "unknown check")
+    return db.query(check["sql"], as_=who(as_))[-1]
 
 
 @app.get("/api/migration")

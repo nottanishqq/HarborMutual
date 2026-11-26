@@ -92,6 +92,14 @@ def migrate() -> dict:
     upsert("UPSERT type::record('note', $r.id) CONTENT { claim: type::record('claim', $r.claim_id),"
            " channel: $r.channel, author: $r.author, body: $r.body, sent_at: <datetime>$r.sent_at }", notes)
 
+    # Mirror the source: drop target rows whose source row is gone (e.g. a smaller re-seed).
+    keep = {"adjuster": rows["adjuster"], "customer": rows["customer"], "policy": rows["policy"],
+            "party": rows["party"], "claim": claims, "note": notes}
+    for table, src in keep.items():
+        db.query(f"DELETE {table} WHERE record::id(id) NOT IN $ids", {"ids": [r["id"] for r in src]})
+    db.query("DELETE involved_in WHERE record::id(id) NOT IN $ids",
+             {"ids": [[r["party_id"], r["claim_id"]] for r in rows["claim_party"]]})
+
     report = verify(rows, correspondence)
     report["seconds"] = round(time.time() - t0, 1)
     (ROOT_DIR / "data" / "migration-report.json").write_text(json.dumps(report, indent=2))

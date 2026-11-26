@@ -33,6 +33,21 @@
   dialog::backdrop { background:#000a; }
   pre { white-space:pre-wrap; background:#0b0d11; padding:10px; border-radius:8px; font-size:13px; }
   .answer { white-space:pre-wrap; }
+  .chips { display:flex; gap:8px; flex-wrap:wrap; margin:-4px 0 12px; }
+  .chip { background:var(--panel); border:1px solid var(--line); color:var(--text); font-weight:500; font-size:13px; padding:5px 12px; border-radius:99px; }
+  .chip:hover, .chip[aria-pressed=true] { border-color:var(--accent); color:var(--accent); }
+  .why { color:var(--muted); font-size:13px; margin:-4px 0 14px; min-height:1.5em; }
+  details { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:10px 16px; margin:16px 0; }
+  summary { cursor:pointer; font-weight:600; }
+  details ul { margin:8px 0; padding-left:20px; color:var(--muted); font-size:14px; }
+  h2 { font-size:15px; margin:28px 0 4px; }
+  .card .head { display:flex; justify-content:space-between; gap:12px; align-items:baseline; }
+  .amt { font-weight:600; white-space:nowrap; }
+  .ranks { font-variant-numeric:tabular-nums; }
+  .check pre { margin:8px 0; }
+  .check button { padding:5px 14px; font-size:13px; }
+  .out { overflow-x:auto; margin-top:8px; }
+  code { background:#0b0d11; padding:1px 5px; border-radius:4px; font-size:13px; }
 </style>
 </head>
 <body>
@@ -62,11 +77,18 @@
       <input id="q" aria-label="Search claims" value="water damage from a leaking pipe">
       <button>Search</button>
     </form>
+    <div class="chips" id="search-chips"></div>
+    <p class="why" id="search-why"></p>
     <div id="search-out" aria-live="polite"></div>
+    <details><summary>How to write your own queries</summary><ul id="search-tips"></ul>
+      <p class="sub">The two statements the API runs, as the signed-in adjuster (<code>$q</code> = your words minus stopwords, <code>$v</code> = their embedding):</p><pre id="search-sql"></pre></details>
   </section>
   <section id="fraud" hidden>
     <p class="hint">A witness should almost never appear on more than one claim. This graph query walks <code>party → involved_in → claim</code> to find witnesses on 3+ claims, plus the repair shops they share.</p>
     <div id="fraud-out" aria-live="polite"></div>
+    <h2>Checks you can run</h2>
+    <p class="hint">Fixed SurrealQL, run as the adjuster above, so results change per region. Copy any of them into Surrealist and edit to write your own.</p>
+    <div class="checks" data-tab="fraud"></div>
   </section>
   <section id="ask" hidden>
     <p class="hint">An LLM with four read-only tools, each running with the adjuster's own database token. It remembers past questions per adjuster (private memory table). Try: "Which open claims look like a fraud ring?" or "Summarise claim HM-24008".</p>
@@ -74,11 +96,15 @@
       <textarea id="question" rows="2" aria-label="Question for the claims agent">Which open claims look like part of a fraud ring, and why?</textarea>
       <button>Ask</button>
     </form>
+    <div class="chips" id="ask-chips"></div>
     <div id="ask-out" aria-live="polite"></div>
   </section>
   <section id="migration" hidden>
     <p class="hint">Every source row and every money total checked against the target after migration.</p>
     <div id="migration-out"></div>
+    <h2>Checks you can run</h2>
+    <p class="hint">Extra checks on the migrated data, run as the adjuster above.</p>
+    <div class="checks" data-tab="migration"></div>
   </section>
 </main>
 <dialog id="detail"><div id="detail-out"></div><form method="dialog"><button>Close</button></form></dialog>
@@ -95,17 +121,40 @@ async function api(path, opts) {
   return body;
 }
 const claimLink = n => `<a class="claim" data-n="${esc(n)}">${esc(n)}</a>`;
-const card = c => `<div class="card"><h3>${claimLink(c.number)} <span class="pill ${esc(c.status)}">${esc(c.status)}</span></h3>
+const card = c => `<div class="card"><div class="head"><h3>${claimLink(c.number)} <span class="pill ${esc(c.status)}">${esc(c.status)}</span></h3><span class="amt">${money(c.amount)}</span></div>
   <div>${esc(c.description)}</div>
-  <div class="meta"><span>${esc(c.region)}</span><span>${money(c.amount)}</span><span>${date(c.filed_at)}</span>
-  ${c.rrf ? `<span>keyword #${c.keyword_rank ?? "–"} · vector #${c.vector_rank ?? "–"} · rrf ${c.rrf}</span>` : ""}</div></div>`;
+  <div class="meta"><span>${esc(c.region)}</span><span>${date(c.filed_at)}</span>
+  ${c.rrf ? `<span class="ranks">keyword #${c.keyword_rank ?? "–"} · vector #${c.vector_rank ?? "–"} · rrf ${c.rrf}</span>` : ""}</div></div>`;
+// Check results: rows of objects become a table; claim numbers become links.
+const cell = v => Array.isArray(v) ? v.map(cell).join(", ") : /^HM-\d+$/.test(v) ? claimLink(v) : esc(v);
+const table = rows => !rows.length ? "<p class='hint'>No rows visible from this region.</p>"
+  : typeof rows[0] !== "object" || Array.isArray(rows[0]) ? `<p>${rows.map(cell).join(" · ")}</p>`
+  : `<table><tr>${Object.keys(rows[0]).map(k => `<th>${esc(k)}</th>`).join("")}</tr>${rows.map(r => `<tr>${Object.values(r).map(v => `<td>${cell(v)}</td>`).join("")}</tr>`).join("")}</table>`;
+async function runCheck(btn) {
+  const out = btn.parentElement.querySelector(".out");
+  out.textContent = "Running…";
+  try { out.innerHTML = table(await api(`/api/check/${btn.dataset.id}?as=${as()}`)); } catch (e) { out.textContent = e.message; }
+}
+api("/api/examples").then(x => {
+  const chips = (el, items, label, pick) => { $(el).innerHTML = items.map((it, i) => `<button type="button" class="chip" data-i="${i}">${esc(label(it))}</button>`).join("");
+    $(el).onclick = e => { const b = e.target.closest(".chip"); if (b) pick(items[b.dataset.i], b); }; };
+  chips("#search-chips", x.search.try, t => t.q, (t, b) => {
+    $("#q").value = t.q; $("#search-why").textContent = t.why;
+    $("#search-chips").querySelectorAll(".chip").forEach(c => c.setAttribute("aria-pressed", c === b)); runSearch(); });
+  $("#search-tips").innerHTML = x.search.tips.map(t => `<li>${esc(t)}</li>`).join("");
+  $("#search-sql").textContent = x.search.sql.join("\n");
+  chips("#ask-chips", x.ask, q => q, q => { $("#question").value = q; $("#question").focus(); });
+  document.querySelectorAll(".checks").forEach(el => el.innerHTML = x.checks.filter(c => c.tab === el.dataset.tab).map(c =>
+    `<div class="card check"><h3>${esc(c.title)}</h3><div class="sub">${esc(c.why)}</div><pre>${esc(c.sql)}</pre>
+     <button type="button" data-id="${esc(c.id)}" onclick="runCheck(this)">Run</button><div class="out" aria-live="polite"></div></div>`).join(""));
+}).catch(() => {});
 
 document.querySelectorAll("[role=tab]").forEach(t => t.onclick = () => {
   document.querySelectorAll("[role=tab]").forEach(x => x.setAttribute("aria-selected", x === t));
   document.querySelectorAll("main > section").forEach(s => s.hidden = s.id !== t.dataset.tab);
   load(t.dataset.tab);
 });
-$("#persona").onchange = () => load(document.querySelector("[aria-selected=true]").dataset.tab);
+$("#persona").onchange = () => { document.querySelectorAll(".check .out").forEach(o => o.innerHTML = ""); load(document.querySelector("[aria-selected=true]").dataset.tab); };
 
 async function load(tab) {
   if (tab === "search") return runSearch();
@@ -113,8 +162,8 @@ async function load(tab) {
     $("#fraud-out").textContent = "Walking the graph…";
     try {
       const rings = await api(`/api/fraud?as=${as()}`);
-      $("#fraud-out").innerHTML = rings.length ? rings.map(r => `<div class="card"><h3>Witness: ${esc(r.name)} (${esc(r.phone)})</h3>
-        <div class="meta"><span>${r.claims} claims</span><span>exposure ${money(r.exposure)}</span><span>shops: ${r.shops.map(esc).join(", ")}</span></div>
+      $("#fraud-out").innerHTML = rings.length ? `<p class="hint">${rings.length} rings visible, total exposure <b>${money(rings.reduce((s, r) => s + Number(r.exposure), 0))}</b>.</p>` + rings.map(r => `<div class="card"><div class="head"><h3>Witness: ${esc(r.name)} (${esc(r.phone)})</h3><span class="amt">${money(r.exposure)}</span></div>
+        <div class="meta"><span>${r.claims} claims</span><span>shops: ${r.shops.map(esc).join(", ")}</span></div>
         <div>${r.linked_claims.map(c => `${claimLink(c.number)} ${money(c.amount)} (${esc(c.region)})`).join(" · ")}</div></div>`).join("")
         : "<p class='hint'>No rings visible from this region.</p>";
     } catch (e) { $("#fraud-out").textContent = e.message; }
@@ -136,7 +185,7 @@ async function runSearch(e) {
     $("#search-out").innerHTML = `<p class="hint">${r.keyword_hits} keyword hits, ${r.vector_hits} vector hits, fused:</p>` + (r.results.map(card).join("") || "<p class='hint'>Nothing visible.</p>");
   } catch (err) { $("#search-out").textContent = err.message; }
 }
-$("#search-form").onsubmit = runSearch;
+$("#search-form").onsubmit = e => { $("#search-why").textContent = ""; $("#search-chips").querySelectorAll(".chip").forEach(c => c.removeAttribute("aria-pressed")); runSearch(e); };
 
 $("#ask-form").onsubmit = async e => {
   e.preventDefault();

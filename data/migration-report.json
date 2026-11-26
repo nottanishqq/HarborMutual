@@ -10,57 +10,57 @@
     {
       "source": "postgres.customer",
       "target": "customer",
-      "source_rows": 160,
-      "target_rows": 160
+      "source_rows": 480,
+      "target_rows": 480
     },
     {
       "source": "postgres.policy",
       "target": "policy",
-      "source_rows": 200,
-      "target_rows": 200
+      "source_rows": 600,
+      "target_rows": 600
     },
     {
       "source": "postgres.party",
       "target": "party",
-      "source_rows": 188,
-      "target_rows": 188
+      "source_rows": 555,
+      "target_rows": 555
     },
     {
       "source": "postgres.claim",
       "target": "claim",
-      "source_rows": 450,
-      "target_rows": 450
+      "source_rows": 1350,
+      "target_rows": 1350
     },
     {
       "source": "postgres.claim_party",
       "target": "involved_in",
-      "source_rows": 274,
-      "target_rows": 274
+      "source_rows": 864,
+      "target_rows": 864
     },
     {
       "source": "mongo.correspondence",
       "target": "note",
-      "source_rows": 892,
-      "target_rows": 892
+      "source_rows": 2763,
+      "target_rows": 2763
     },
     {
       "source": "postgres.payment",
       "target": "claim.payments[*]",
-      "source_rows": 261,
-      "target_rows": 261
+      "source_rows": 701,
+      "target_rows": 701
     }
   ],
   "money": [
     {
       "check": "sum(claim.amount)",
-      "source": 2201434.02,
-      "target": 2201434.02
+      "source": 6543121.55,
+      "target": 6543121.55
     },
     {
       "check": "sum(payment.amount)",
-      "source": 1253755.96,
-      "target": 1253755.96
+      "source": 3318325.24,
+      "target": 3318325.24
     }
   ],
-  "seconds": 3.3
+  "seconds": 11.6
 }
